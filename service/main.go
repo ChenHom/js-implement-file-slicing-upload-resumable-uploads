@@ -8,8 +8,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,6 +41,7 @@ var (
 	mu   sync.Mutex
 	limiter = rate.NewLimiter(1, 5) // 每秒 1 個請求，最多允許 5 個突發請求
 	userUploadLimits = make(map[string]*rate.Limiter)
+	tasks = make(map[string]*UploadTask) // 定義並初始化 tasks 變數
 	logger = logrus.New()
 )
 
@@ -127,6 +130,7 @@ func createUploadTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mu.Lock()
+	tasks[task.TaskID] = &task // 將任務儲存在 tasks 中
 	_, err = db.Exec(`INSERT INTO upload_tasks (task_id, file_name, file_size, total_chunks, file_hash, chunk_hashes, uploaded_chunks) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		task.TaskID, task.FileName, task.FileSize, task.TotalChunks, task.FileHash, string(chunkHashesJSON), string(uploadedChunksJSON))
 	mu.Unlock()
@@ -194,7 +198,7 @@ func uploadChunk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 驗證分片的哈希值，確保資料完整性
+	// 驗證分片的雜湊值，確保資料完整性
 	tempFile.Seek(0, 0)
 	hash := sha256.New()
 	if _, err := io.Copy(hash, tempFile); err != nil {
@@ -242,7 +246,7 @@ func cleanUpExpiredFiles() {
 		time.Sleep(24 * time.Hour) // 每 24 小時執行一次清理
 		mu.Lock()
 		files, err := os.ReadDir("./uploads")
-		if err != nil {
+		if (err != nil) {
 			logger.WithError(err).Error("Error reading uploads directory")
 			mu.Unlock()
 			continue
@@ -330,7 +334,7 @@ func mergeChunks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 驗證合併後的檔案哈希值
+	// 驗證合併後的檔案雜湊值
 	mergedFile.Seek(0, 0)
 	hash := sha256.New()
 	if _, err := io.Copy(hash, mergedFile); err != nil {
@@ -362,5 +366,18 @@ func main() {
 	http.Handle("/api/uploadChunk", rateLimit(userRateLimit(http.HandlerFunc(uploadChunk))))
 	http.Handle("/api/ping", rateLimit(http.HandlerFunc(ping)))
 	http.Handle("/api/mergeChunks", rateLimit(http.HandlerFunc(mergeChunks)))
-	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	// 捕捉系統信號以釋放資源
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		logger.Infof("Received signal: %s. Shutting down...", sig)
+		db.Close()
+		os.Exit(0)
+	}()
+
+	logger.Info("Service started on port 8080")
+	logger.Fatal(http.ListenAndServe(":8080", nil))
 }
