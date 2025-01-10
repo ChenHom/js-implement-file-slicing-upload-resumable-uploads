@@ -1,0 +1,14 @@
+{
+  "name": "js-implement-file-slicing-upload-resumable-uploads",
+  "version": "1.0.0",
+  "description": "這份文件將介紹如何設計一個穩定且可靠的圖片分片上傳系統，尤其是在網路環境不穩定時，確保圖片能順利上傳。以下是完整的功能規格與技術需求。",
+  "main": "upload.js",
+  "scripts": {
+    "dev": "./node_modules/http-server/bin/http-server "
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "http-server": "^14.1.1"
+  }
+}
