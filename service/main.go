@@ -287,7 +287,7 @@ func mergeChunks(w http.ResponseWriter, r *http.Request) {
 	mu.Lock()
 	task, exists := tasks[req.TaskID]
 	mu.Unlock()
-	if !exists {
+	if (!exists) {
 		logger.WithField("task_id", req.TaskID).Warn("Invalid task_id")
 		http.Error(w, "Invalid task_id", http.StatusBadRequest)
 		return
@@ -368,6 +368,8 @@ func main() {
 	http.Handle("/api/mergeChunks", rateLimit(http.HandlerFunc(mergeChunks)))
 
 	// 捕捉系統信號以釋放資源
+	// sigChan 是一個緩衝通道，用來接收系統信號 (SIGINT 和 SIGTERM)
+	// 當接收到這些信號時，程式會進行資源釋放並優雅地關閉
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -379,5 +381,7 @@ func main() {
 	}()
 
 	logger.Info("Service started on port 8080")
-	logger.Fatal(http.ListenAndServe(":8080", nil))
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		logger.Fatal(err)
+	}
 }
