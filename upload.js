@@ -27,7 +27,12 @@ function getChunkSize() {
 
 export async function selectFile(file) {
     const { taskId, chunkSize, totalChunks, fileHash, chunkHashes, uploadedChunks } = await createUploadTask(file);
-    await uploadChunks(file, { chunkSize, totalChunks, taskId, chunkHashes, uploadedChunks });
+    if (totalChunks === 1) {
+        await uploadChunk(file, taskId, chunkHashes, chunkSize, 0);
+        await requestMerge(taskId);
+    } else {
+        await uploadChunks(file, { chunkSize, totalChunks, taskId, chunkHashes, uploadedChunks });
+    }
 }
 
 async function createUploadTask(file) {
