@@ -28,3 +28,4 @@ go.work.sum
 **/*.sqlite
 node_modules/
 service/uploads
+service/main

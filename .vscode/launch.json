@@ -1,0 +1,13 @@
+{
+    "configurations": [
+        {
+            "type": "go",
+            "request": "launch",
+            "name": "Launch Program",
+            "program": "${workspaceFolder}/service/main.go",
+            "cwd": "${workspaceFolder}/service",
+            "preLaunchTask": "build",
+            "internalConsoleOptions": "neverOpen"
+        }
+    ]
+}
