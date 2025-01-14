@@ -217,6 +217,81 @@ func TestUploadDifferentSizes(t *testing.T) {
 	}
 }
 
+func TestTaskCompletion(t *testing.T) {
+	filename := "test_image_completion.png"
+	setup(filename, 1024, 128) // 128KB
+	defer teardown(filename)
+
+	// Create a dummy upload task
+	task := UploadTask{
+		TaskID:        "test-task-id-completion",
+		FileName:      "test_image_completion.png",
+		FileSize:      128 * 1024,
+		TotalChunks:   1,
+		ChunkHashes:   []string{"hash1"},
+		UploadedChunks: []int{0},
+	}
+
+	// 計算合併後文件的雜湊值
+	file, err := os.Open(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		t.Fatal(err)
+	}
+	task.FileHash = fmt.Sprintf("%x", hash.Sum(nil))
+
+	tasks[task.TaskID] = &task
+
+	// Create dummy chunk file
+	os.MkdirAll("./uploads", os.ModePerm)
+	file.Seek(0, 0)
+	chunkFile, err := os.Create("./uploads/test-task-id-completion_0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer chunkFile.Close()
+	if _, err := io.Copy(chunkFile, file); err != nil {
+		t.Fatal(err)
+	}
+
+	reqBody := `{"task_id": "test-task-id-completion"}`
+	req, err := http.NewRequest("POST", "/api/mergeChunks", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(mergeChunks)
+	handler.ServeHTTP(rr, req)
+
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+
+	var response map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Errorf("Failed to decode response: %v", err)
+	}
+
+	if _, ok := response["download_url"]; !ok {
+		t.Errorf("Response does not contain download_url")
+	}
+
+	// Verify that the task is marked as completed in the database
+	var status string
+	err = db.QueryRow(`SELECT status FROM upload_tasks WHERE task_id = ?`, task.TaskID).Scan(&status)
+	if err != nil {
+		t.Errorf("Failed to query task status: %v", err)
+	}
+	if status != "completed" {
+		t.Errorf("Task status is not 'completed': got %v", status)
+	}
+}
+
 // 確保在所有測試完成後關閉資料庫連接
 func TestMain(m *testing.M) {
 	code := m.Run()

@@ -123,7 +123,8 @@ func initDB() {
 		"total_chunks" INTEGER,
 		"file_hash" TEXT,
 		"chunk_hashes" TEXT,
-		"uploaded_chunks" TEXT
+		"uploaded_chunks" TEXT,
+		"status" TEXT DEFAULT 'incomplete'
 	);`
 
 	_, err = db.Exec(createTableSQL)
@@ -140,6 +141,7 @@ type UploadTask struct {
 	FileHash      string   `json:"fileHash"`
 	ChunkHashes   []string `json:"chunkHashes"`
 	UploadedChunks []int    `json:"uploadedChunks"`
+	Status        string   `json:"status"`
 }
 
 type ChunkUpload struct {
@@ -217,8 +219,8 @@ func createUploadTask(w http.ResponseWriter, r *http.Request) {
 
 	mu.Lock()
 	tasks[task.TaskID] = &task // 將任務儲存在 tasks 中
-	_, err = db.Exec(`INSERT INTO upload_tasks (task_id, file_name, file_size, total_chunks, file_hash, chunk_hashes, uploaded_chunks) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		task.TaskID, task.FileName, task.FileSize, task.TotalChunks, task.FileHash, string(chunkHashesJSON), string(uploadedChunksJSON))
+	_, err = db.Exec(`INSERT INTO upload_tasks (task_id, file_name, file_size, total_chunks, file_hash, chunk_hashes, uploaded_chunks, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		task.TaskID, task.FileName, task.FileSize, task.TotalChunks, task.FileHash, string(chunkHashesJSON), string(uploadedChunksJSON), task.Status)
 	mu.Unlock()
 
 	if err != nil {
@@ -459,6 +461,22 @@ func mergeChunks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"downloadUrl": downloadURL})
 	logger.WithField("task_id", req.TaskID).Info("Merged file created")
+
+	// 標記任務為已完成
+	_, err = db.Exec(`UPDATE upload_tasks SET status = ? WHERE task_id = ?`, "completed", req.TaskID)
+	if err != nil {
+		logger.WithError(err).Error("Failed to mark task as completed in database")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 從 tasks map 中刪除任務
+	mu.Lock()
+	delete(tasks, req.TaskID)
+	mu.Unlock()
+
+	// 記錄任務清除
+	logger.WithField("task_id", req.TaskID).Info("Task cleared")
 }
 
 // 定義一個簡單的 middleware 函數
