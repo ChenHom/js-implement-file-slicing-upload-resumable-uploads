@@ -171,3 +171,116 @@
    - 部署監控工具（如 Prometheus）監測系統性能。
 
 4. **測試與壓力測試**：
+
+---
+
+## **API 請求參數與回應格式**
+
+### **1. 建立上傳任務請求**
+
+- **路徑**：`/api/createUploadTask`
+- **方法**：`POST`
+- **請求參數**：
+  - `fileName` (string): 檔案名稱
+  - `fileSize` (int): 檔案大小
+  - `totalChunks` (int): 總分片數量
+  - `fileHash` (string): 檔案雜湊值
+  - `chunkHashes` (array of string): 每個分片的雜湊值
+
+- **回應格式**：
+  - `task_id` (string): 任務 ID
+
+- **請求範例**：
+
+  ```json
+  {
+    "fileName": "example.jpg",
+    "fileSize": 1024000,
+    "totalChunks": 10,
+    "fileHash": "abc123",
+    "chunkHashes": ["hash1", "hash2", "hash3", "hash4", "hash5", "hash6", "hash7", "hash8", "hash9", "hash10"]
+  }
+  ```
+
+- **回應範例**：
+
+  ```json
+  {
+    "task_id": "unique-task-id"
+  }
+  ```
+
+### **2. 上傳分片請求**
+
+- **路徑**：`/api/uploadChunk`
+- **方法**：`POST`
+- **請求參數**：
+  - `task_id` (string): 任務 ID
+  - `chunk_index` (int): 分片編號
+  - `chunk_hash` (string): 分片雜湊值
+  - `file_chunk` (file): 分片檔案
+
+- **回應格式**：
+  - 無
+
+- **請求範例**：
+
+  ```http
+  POST /api/uploadChunk HTTP/1.1
+  Content-Type: multipart/form-data; boundary=---011000010111000001101001
+
+  ---011000010111000001101001
+  Content-Disposition: form-data; name="task_id"
+
+  unique-task-id
+  ---011000010111000001101001
+  Content-Disposition: form-data; name="chunk_index"
+
+  0
+  ---011000010111000001101001
+  Content-Disposition: form-data; name="chunk_hash"
+
+  hash1
+  ---011000010111000001101001
+  Content-Disposition: form-data; name="file_chunk"; filename="chunk0"
+  Content-Type: application/octet-stream
+
+  (binary data)
+  ---011000010111000001101001--
+  ```
+
+### **3. Ping 請求**
+
+- **路徑**：`/api/ping`
+- **方法**：`HEAD`
+- **請求參數**：
+  - 無
+
+- **回應格式**：
+  - 無
+
+### **4. 合併分片請求**
+
+- **路徑**：`/api/mergeChunks`
+- **方法**：`POST`
+- **請求參數**：
+  - `task_id` (string): 任務 ID
+
+- **回應格式**：
+  - `download_url` (string): 完整檔案的下載連結
+
+- **請求範例**：
+
+  ```json
+  {
+    "task_id": "unique-task-id"
+  }
+  ```
+
+- **回應範例**：
+
+  ```json
+  {
+    "download_url": "/uploads/example.jpg"
+  }
+  ```
