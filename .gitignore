@@ -25,4 +25,6 @@ go.work.sum
 .env
 
 **/*.db
+**/*.sqlite
 node_modules/
+service/uploads

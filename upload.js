@@ -1,3 +1,8 @@
+const BASE_URL = 'http://127.0.0.1:8080';
+
+// 生成一個新的 userId
+const userId = `user-${Math.random().toString(36).substr(2, 9)}`;
+
 async function calculateSHA256(buffer) {
     const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -45,17 +50,30 @@ async function createUploadTask(file) {
     }
 
     try {
-        const response = await fetch('/api/createUploadTask', {
+        const requestBody = {
+            fileName: file.name,
+            fileSize: file.size,
+            totalChunks: totalChunks,
+            fileHash: fileHash,
+            chunkHashes: chunkHashes
+        };
+
+        // 如果有 uploadedChunks，則添加到請求體中
+        const uploadProgress = JSON.parse(localStorage.getItem('uploadProgress'));
+        if (uploadProgress && uploadProgress.uploadedChunks) {
+            requestBody.uploadedChunks = uploadProgress.uploadedChunks;
+        }
+
+        const response = await fetch(`${BASE_URL}/api/createUploadTask`, {
             method: 'POST',
-            body: JSON.stringify({
-                fileName: file.name,
-                fileSize: file.size,
-                totalChunks: totalChunks,
-                fileHash: fileHash,
-                chunkHashes: chunkHashes
-            }),
+            body: JSON.stringify(requestBody),
             headers: { 'Content-Type': 'application/json' }
         });
+
+        if (!response.ok) {
+            throw new Error(`初始化上傳失敗: ${response.statusText}`);
+        }
+
         const { taskId, uploadedChunks } = await response.json();
         // 儲存進度到 localStorage
         localStorage.setItem('uploadProgress', JSON.stringify({ taskId, chunkSize, totalChunks, fileHash, chunkHashes, uploadedChunks }));
@@ -95,9 +113,12 @@ async function uploadChunk(file, taskId, chunkHashes, chunkSize, index, retries 
     // 簡易重試機制
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            const response = await fetchWithTimeout('/api/uploadChunk', {
+            const response = await fetchWithTimeout(`${BASE_URL}/api/uploadChunk`, {
                 method: 'POST',
-                body: formData
+                body: formData,
+                headers: {
+                    'X-User-ID': 'your-user-id' // 添加 X-User-ID 標頭
+                }
             });
             if (!response.ok) throw new Error(`分片 ${index} 上傳失敗`);
             // 更新本地儲存進度
@@ -159,7 +180,7 @@ function monitorNetworkStatus() {
     // 定期發送 Ping 請求檢測網路狀態
     pingInterval = setInterval(async () => {
         try {
-            const response = await fetch('/api/ping');
+            const response = await fetch(`${BASE_URL}/api/ping`);
             if (response.ok && isPaused) {
                 console.log('網路恢復');
                 resumeUpload();
@@ -170,7 +191,7 @@ function monitorNetworkStatus() {
                 pauseUpload();
             }
         }
-    }, 5000); // 每 5 秒檢測一次
+    }, 10000); // 每 5 秒檢測一次
 }
 
 async function processPendingChunks() {
@@ -183,7 +204,7 @@ async function processPendingChunks() {
 
 async function requestMerge(taskId) {
     try {
-        const response = await fetch('/api/mergeChunks', {
+        const response = await fetch(`${BASE_URL}/api/mergeChunks`, {
             method: 'POST',
             body: JSON.stringify({ taskId }),
             headers: { 'Content-Type': 'application/json' }
