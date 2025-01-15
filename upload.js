@@ -217,6 +217,16 @@ async function requestMerge(taskId) {
         if (!response.ok) throw new Error('合併分片失敗');
         const { downloadUrl } = await response.json();
         console.log('上傳完成，下載連結:', downloadUrl);
+
+        // 清除 localStorage
+        localStorage.clear();
+
+        // 重置 file input 元素
+        const fileInput = document.getElementById('fileInput');
+        if (fileInput) {
+            fileInput.value = '';
+        }
+
         return downloadUrl;
     } catch (error) {
         console.error('完成上傳失敗', error);

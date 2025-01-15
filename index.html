@@ -28,6 +28,13 @@
                 alert('請選擇一個檔案');
             }
         });
+
+        function resetFileInput() {
+            const fileInput = document.getElementById('fileInput');
+            if (fileInput) {
+                fileInput.value = '';
+            }
+        }
     </script>
 </body>
 </html>
