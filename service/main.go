@@ -15,36 +15,36 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	_ "github.com/mattn/go-sqlite3"
-	"golang.org/x/time/rate"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 )
 
 type Config struct {
-	DBPath           string
-	MaxOpenConns     int
-	MaxIdleConns     int
-	ConnMaxLifetime  time.Duration
-	RateLimit        rate.Limit
-	BurstLimit       int
-	UserRateLimit    rate.Limit
-	UserBurstLimit   int
-	CleanupInterval  time.Duration
-	FileRetention    time.Duration
+	DBPath          string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+	RateLimit       rate.Limit
+	BurstLimit      int
+	UserRateLimit   rate.Limit
+	UserBurstLimit  int
+	CleanupInterval time.Duration
+	FileRetention   time.Duration
 }
 
 var (
-	db   *sql.DB
-	mu   sync.Mutex
-	config Config
-	limiter *rate.Limiter
+	db               *sql.DB
+	mu               sync.Mutex
+	config           Config
+	limiter          *rate.Limiter
 	userUploadLimits = make(map[string]*rate.Limiter)
-	tasks = make(map[string]*UploadTask) // 定義並初始化 tasks 變數
-	logger = logrus.New()
-	requestDuration = prometheus.NewHistogramVec(
+	tasks            = make(map[string]*UploadTask) // 定義並初始化 tasks 變數
+	logger           = logrus.New()
+	requestDuration  = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "http_request_duration_seconds",
 			Help:    "Duration of HTTP requests.",
@@ -134,25 +134,25 @@ func initDB() {
 }
 
 type UploadTask struct {
-	TaskID        string   `json:"taskId"`
-	FileName      string   `json:"fileName"`
-	FileSize      int64    `json:"fileSize"`
-	TotalChunks   int      `json:"totalChunks"`
-	FileHash      string   `json:"fileHash"`
-	ChunkHashes   []string `json:"chunkHashes"`
+	TaskID         string   `json:"taskId"`
+	FileName       string   `json:"fileName"`
+	FileSize       int64    `json:"fileSize"`
+	TotalChunks    int      `json:"totalChunks"`
+	FileHash       string   `json:"fileHash"`
+	ChunkHashes    []string `json:"chunkHashes"`
 	UploadedChunks []int    `json:"uploadedChunks"`
-	Status        string   `json:"status"`
+	Status         string   `json:"status"`
 }
 
 type ChunkUpload struct {
-	TaskID    string `json:"taskId"`
+	TaskID     string `json:"taskId"`
 	ChunkIndex int    `json:"chunkIndex"`
 	ChunkHash  string `json:"chunkHash"`
 }
 
 func rateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if (!limiter.Allow()) {
+		if !limiter.Allow() {
 			http.Error(w, "Too many requests", http.StatusTooManyRequests)
 			return
 		}
@@ -169,13 +169,13 @@ func userRateLimit(next http.Handler) http.Handler {
 		}
 		mu.Lock()
 		userLimiter, exists := userUploadLimits[userID]
-		if (!exists) {
+		if !exists {
 			userLimiter = rate.NewLimiter(config.UserRateLimit, config.UserBurstLimit)
 			userUploadLimits[userID] = userLimiter
 		}
 		mu.Unlock()
 
-		if (!userLimiter.Allow()) {
+		if !userLimiter.Allow() {
 			http.Error(w, "Too many requests", http.StatusTooManyRequests)
 			return
 		}
@@ -230,135 +230,138 @@ func createUploadTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logger.WithFields(logrus.Fields{
-		"task_id": task.TaskID,
-		"file_name": task.FileName,
-		"file_size": task.FileSize,
+		"task_id":      task.TaskID,
+		"file_name":    task.FileName,
+		"file_size":    task.FileSize,
 		"total_chunks": task.TotalChunks,
 	}).Info("Created upload task")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"taskId": task.TaskID,
-		"chunkSize": getChunkSize(),
-		"totalChunks": task.TotalChunks,
-		"fileHash": task.FileHash,
-		"chunkHashes": task.ChunkHashes,
+		"taskId":         task.TaskID,
+		"chunkSize":      getChunkSize(),
+		"totalChunks":    task.TotalChunks,
+		"fileHash":       task.FileHash,
+		"chunkHashes":    task.ChunkHashes,
 		"uploadedChunks": task.UploadedChunks,
 	})
 }
 
 func uploadChunk(w http.ResponseWriter, r *http.Request) {
-    var chunk ChunkUpload
+	var chunk ChunkUpload
 
-    chunk.TaskID = r.FormValue("taskId")
-    chunk.ChunkIndex, _ = strconv.Atoi(r.FormValue("chunkIndex"))
-    chunk.ChunkHash = r.FormValue("chunkHash")
+	chunk.TaskID = r.FormValue("taskId")
+	chunk.ChunkIndex, _ = strconv.Atoi(r.FormValue("chunkIndex"))
+	chunk.ChunkHash = r.FormValue("chunkHash")
 
-    file, _, err := r.FormFile("fileChunk")
-    if err != nil {
-        logger.WithError(err).Error("Failed to get file chunk")
-        http.Error(w, "Failed to get file chunk", http.StatusBadRequest)
-        return
-    }
-    defer file.Close()
+	file, _, err := r.FormFile("fileChunk")
+	if err != nil {
+		logger.WithError(err).Error("Failed to get file chunk")
+		http.Error(w, "Failed to get file chunk", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
 
-    // 驗證請求的合法性，檢查 task_id 和分片編號
-    mu.Lock()
-    task, exists := tasks[chunk.TaskID]
-    mu.Unlock()
-    if (!exists) {
-        logger.WithField("task_id", chunk.TaskID).Warn("Task not found")
-        http.Error(w, "Task not found", http.StatusNotFound)
-        return
-    }
+	// 驗證請求的合法性，檢查 task_id 和分片編號
+	mu.Lock()
+	task, exists := tasks[chunk.TaskID]
+	mu.Unlock()
+	if !exists {
+		logger.WithField("task_id", chunk.TaskID).Warn("Task not found")
+		http.Error(w, "Task not found", http.StatusNotFound)
+		return
+	}
 
-    // 使用臨時儲存路徑保存分片
-    tempFilePath := fmt.Sprintf("./uploads/%s_%d", chunk.TaskID, chunk.ChunkIndex)
-    tempFile, err := os.Create(tempFilePath)
-    if err != nil {
-        logger.WithError(err).Error("Failed to create temp file")
-        http.Error(w, "Failed to create temp file", http.StatusInternalServerError)
-        return
-    }
-    defer tempFile.Close()
+	// 使用臨時儲存路徑保存分片
+	tempFilePath := fmt.Sprintf("./uploads/%s_%d", chunk.TaskID, chunk.ChunkIndex)
+	tempFile, err := os.Create(tempFilePath)
+	if err != nil {
+		logger.WithError(err).Error("Failed to create temp file")
+		http.Error(w, "Failed to create temp file", http.StatusInternalServerError)
+		return
+	}
+	defer tempFile.Close()
 
-    _, err = io.Copy(tempFile, file)
-    if err != nil {
-        logger.WithError(err).Error("Failed to save file chunk")
-        http.Error(w, "Failed to save file chunk", http.StatusInternalServerError)
-        return
-    }
+	_, err = io.Copy(tempFile, file)
+	if err != nil {
+		logger.WithError(err).Error("Failed to save file chunk")
+		http.Error(w, "Failed to save file chunk", http.StatusInternalServerError)
+		return
+	}
 
-    // 驗證分片的雜湊值，確保資料完整性
-    go func() {
-        tempFile, err := os.Open(tempFilePath)
-        if err != nil {
-            logger.WithError(err).Error("Failed to open temp file")
-            return
-        }
-        defer tempFile.Close()
+	// 驗證分片的雜湊值，確保資料完整性
+	go func() {
+		tempFile, err := os.Open(tempFilePath)
+		if err != nil {
+			logger.WithError(err).Error("Failed to open temp file")
+			return
+		}
+		defer tempFile.Close()
 
-        hash := sha256.New()
-        if _, err := io.Copy(hash, tempFile); err != nil {
-            logger.WithError(err).Error("Failed to calculate hash")
-            return
-        }
-        calculatedHash := fmt.Sprintf("%x", hash.Sum(nil))
-        if calculatedHash != chunk.ChunkHash {
-            logger.Errorf("Hash mismatch: expected %s, got %s", chunk.ChunkHash, calculatedHash)
-            return
-        }
+		hash := sha256.New()
+		if _, err := io.Copy(hash, tempFile); err != nil {
+			logger.WithError(err).Error("Failed to calculate hash")
+			return
+		}
+		calculatedHash := fmt.Sprintf("%x", hash.Sum(nil))
+		if calculatedHash != chunk.ChunkHash {
+			logger.Errorf("Hash mismatch: expected %s, got %s", chunk.ChunkHash, calculatedHash)
+			return
+		}
 
-        // 更新資料庫中的分片上傳狀態
-        mu.Lock()
-        defer mu.Unlock()
-        uploadedChunks := append(task.UploadedChunks, chunk.ChunkIndex)
-        uploadedChunksJSON, err := json.Marshal(uploadedChunks)
-        if err != nil {
-            logger.WithError(err).Error("Failed to marshal uploaded chunks")
-            return
-        }
+		// 更新資料庫中的分片上傳狀態
+		mu.Lock()
+		defer mu.Unlock()
+		uploadedChunks := append(task.UploadedChunks, chunk.ChunkIndex)
+		uploadedChunksJSON, err := json.Marshal(uploadedChunks)
+		if err != nil {
+			logger.WithError(err).Error("Failed to marshal uploaded chunks")
+			return
+		}
 
-        _, err = db.Exec(`UPDATE upload_tasks SET uploaded_chunks = ? WHERE task_id = ?`, string(uploadedChunksJSON), chunk.TaskID)
-        if err != nil {
-            logger.WithError(err).Error("Failed to update database")
-            return
-        }
+		_, err = db.Exec(`UPDATE upload_tasks SET uploaded_chunks = ? WHERE task_id = ?`, string(uploadedChunksJSON), chunk.TaskID)
+		if err != nil {
+			logger.WithError(err).Error("Failed to update database")
+			return
+		}
 
-        logger.WithFields(logrus.Fields{
-            "task_id":    chunk.TaskID,
-            "chunk_index": chunk.ChunkIndex,
-        }).Info("Uploaded chunk")
-    }()
+		// 更新 task.UploadedChunks
+		task.UploadedChunks = uploadedChunks
+		tasks[chunk.TaskID] = task
+		logger.WithFields(logrus.Fields{
+			"task_id":     chunk.TaskID,
+			"chunk_index": chunk.ChunkIndex,
+		}).Info("Uploaded chunk")
+	}()
 
-    w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusOK)
 }
 
 func cleanUpExpiredFiles() {
-    for {
-        time.Sleep(config.CleanupInterval) // 每 24 小時執行一次清理
-        files, err := os.ReadDir("./uploads")
-        if (err != nil) {
-            logger.Errorf("Failed to read uploads directory: %v", err)
-            continue
-        }
+	for {
+		time.Sleep(config.CleanupInterval) // 每 24 小時執行一次清理
+		files, err := os.ReadDir("./uploads")
+		if err != nil {
+			logger.Errorf("Failed to read uploads directory: %v", err)
+			continue
+		}
 
-        for _, file := range files {
-            info, err := file.Info()
-            if (err != nil) {
-                logger.Errorf("Failed to get file info: %v", err)
-                continue
-            }
+		for _, file := range files {
+			info, err := file.Info()
+			if err != nil {
+				logger.Errorf("Failed to get file info: %v", err)
+				continue
+			}
 
-            if time.Since(info.ModTime()) > config.FileRetention { // 清理 7 天前的檔案
-                err := os.Remove("./uploads/" + file.Name())
-                if (err != nil) {
-                    logger.Errorf("Failed to remove file: %v", err)
-                } else {
-                    logger.Infof("Removed expired file: %s", file.Name())
-                }
-            }
-        }
-    }
+			if time.Since(info.ModTime()) > config.FileRetention { // 清理 7 天前的檔案
+				err := os.Remove("./uploads/" + file.Name())
+				if err != nil {
+					logger.Errorf("Failed to remove file: %v", err)
+				} else {
+					logger.Infof("Removed expired file: %s", file.Name())
+				}
+			}
+		}
+	}
 }
 
 func ping(w http.ResponseWriter, r *http.Request) {
@@ -383,7 +386,7 @@ func mergeChunks(w http.ResponseWriter, r *http.Request) {
 	mu.Lock()
 	task, exists := tasks[req.TaskID]
 	mu.Unlock()
-	if (!exists) {
+	if !exists {
 		logger.WithField("task_id", req.TaskID).Warn("Invalid task_id")
 		http.Error(w, "Invalid task_id", http.StatusBadRequest)
 		return
@@ -391,12 +394,12 @@ func mergeChunks(w http.ResponseWriter, r *http.Request) {
 
 	// 打印取出的 task
 	logger.WithFields(logrus.Fields{
-		"task_id": task.TaskID,
-		"file_name": task.FileName,
-		"file_size": task.FileSize,
-		"total_chunks": task.TotalChunks,
-		"file_hash": task.FileHash,
-		"chunk_hashes": task.ChunkHashes,
+		"task_id":         task.TaskID,
+		"file_name":       task.FileName,
+		"file_size":       task.FileSize,
+		"total_chunks":    task.TotalChunks,
+		"file_hash":       task.FileHash,
+		"chunk_hashes":    task.ChunkHashes,
 		"uploaded_chunks": task.UploadedChunks,
 	}).Info("Fetched task")
 
@@ -436,7 +439,7 @@ func mergeChunks(w http.ResponseWriter, r *http.Request) {
 
 		// 刪除已合併的分片
 		err = os.Remove(chunkFilePath)
-		if (err != nil) {
+		if err != nil {
 			logger.WithError(err).Error("Error removing chunk file")
 		}
 	}
@@ -481,21 +484,21 @@ func mergeChunks(w http.ResponseWriter, r *http.Request) {
 
 // 定義一個簡單的 middleware 函數
 func loggingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        start := time.Now()
-        logger.WithFields(logrus.Fields{
-            "method": r.Method,
-            "url":    r.URL.Path,
-        }).Info("Incoming request")
-        next.ServeHTTP(w, r)
-        duration := time.Since(start)
-        requestDuration.WithLabelValues(r.URL.Path, r.Method).Observe(duration.Seconds())
-        logger.WithFields(logrus.Fields{
-            "method":   r.Method,
-            "url":      r.URL.Path,
-            "duration": duration,
-        }).Info("Request processed")
-    })
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		logger.WithFields(logrus.Fields{
+			"method": r.Method,
+			"url":    r.URL.Path,
+		}).Info("Incoming request")
+		next.ServeHTTP(w, r)
+		duration := time.Since(start)
+		requestDuration.WithLabelValues(r.URL.Path, r.Method).Observe(duration.Seconds())
+		logger.WithFields(logrus.Fields{
+			"method":   r.Method,
+			"url":      r.URL.Path,
+			"duration": duration,
+		}).Info("Request processed")
+	})
 }
 
 func getChunkSize() int {
