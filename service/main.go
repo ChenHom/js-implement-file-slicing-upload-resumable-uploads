@@ -324,6 +324,9 @@ func uploadChunk(w http.ResponseWriter, r *http.Request) {
             return
         }
 
+        // 更新 task.UploadedChunks
+        task.UploadedChunks = uploadedChunks
+
         logger.WithFields(logrus.Fields{
             "task_id":    chunk.TaskID,
             "chunk_index": chunk.ChunkIndex,
